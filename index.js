@@ -50,7 +50,27 @@ async function loadTextsOnce() {
 
 // Score de similarité entre question et paragraphe
 function scoreMatch(question, paragraph) {
-  const important3 = ["stp", "vlan", "osi", "lan", "wan"];
+  const important3 = ["stp", "vlan", "osi", "lan", "wan", "wifi", "dhcp", "dns", "nat", "ipv4", "ipv6", "tcp", "udp"];
+
+  // Dictionnaire de synonymes pour le contexte réseau
+  const synonyms = {
+    "switch": ["commutateur", "switch", "commutation", "commutateurs"],
+    "commutateur": ["switch", "commutateur", "commutateurs"],
+    "router": ["routeur", "router", "routage", "routeurs"],
+    "routeur": ["router", "routeur", "routage", "routeurs"],
+    "hub": ["concentrateur", "hub"],
+    "concentrateur": ["hub", "concentrateur"],
+    "ordinateur": ["pc", "poste", "ordinateur", "machine"],
+    "pc": ["pc", "ordinateur"],
+    "fil": ["cable", "filaire", "ethernet"],
+    "cable": ["cable", "fil", "filaire"],
+    "sans": ["wifi", "wireless", "sans fil"],
+    "wifi": ["wifi", "wireless", "sans fil", "wlan"],
+     "wlan": ["wifi", "wireless", "sans fil", "wlan"],
+     "role": ["sert", "fonction", "role", "permet", "but", "objectif", "fonctionnalités", "fonctionnalites", "mission"],
+     "fonction": ["role", "fonction", "sert", "fonctionnalités"],
+     "quoi": ["definition", "qu'est-ce", "quoi", "c'est"]
+   };
 
   const qWords = question
     .toLowerCase()
@@ -65,9 +85,29 @@ function scoreMatch(question, paragraph) {
   let score = 0;
 
   for (const w of qWords) {
-    if (pText.includes(w)) score++;
+    // Vérifier le mot exact
+    if (hasWord(pText, w)) {
+      score += 1;
+    } 
+    // Vérifier les synonymes
+    else if (synonyms[w]) {
+       for (const syn of synonyms[w]) {
+         if (hasWord(pText, syn)) {
+           score += 1; 
+           break; 
+         }
+       }
+    }
   }
   return score;
+}
+
+// Helper pour chercher un mot entier (évite que "port" matche "support")
+function hasWord(text, word) {
+  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // On considère comme délimiteur tout ce qui n'est pas lettre/chiffre (y compris accents)
+  const pattern = `(?:^|[^a-z0-9éèàùîïôç])${escaped}(?:$|[^a-z0-9éèàùîïôç])`;
+  return new RegExp(pattern, 'i').test(text);
 }
 
 // Cherche une "zone d’explication" avec plus de contexte
@@ -235,11 +275,11 @@ exports.handler = async (event) => {
 
   const s = sessions[sessionId];
 
-  function reply(text, buttons = null) {
+  function reply(text, buttons = null, enableInput = false) {
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ response: text, buttons })
+      body: JSON.stringify({ response: text, buttons, enableInput })
     };
   }
 
@@ -250,14 +290,14 @@ exports.handler = async (event) => {
       { label: "SRI", value: "sri", icon: "🖥️" },
       { label: "CG", value: "cg", icon: "📊" },
       { label: "ELT", value: "elt", icon: "⚡" }
-    ]);
+    ], false);
   }
 
   // STEP 2 : filière choisie
   if (s.step === 2) {
     msg = msg.toUpperCase();
     if (!data[msg]) {
-      return reply("Filière inconnue. Choisissez SRI, CG ou ELT.");
+      return reply("Filière inconnue. Choisissez SRI, CG ou ELT.", null, false);
     }
 
     s.field = msg;
@@ -276,13 +316,13 @@ exports.handler = async (event) => {
       icon: iconFor(m)
     }));
 
-    return reply("Choisissez un module :", moduleButtons);
+    return reply("Choisissez un module :", moduleButtons, false);
   }
 
   // STEP 3 : module choisi
   if (s.step === 3) {
     if (!data[s.field][msg]) {
-      return reply("Module invalide. Réessayez.");
+      return reply("Module invalide. Réessayez.", null, false);
     }
 
     s.module = msg;
@@ -292,7 +332,7 @@ exports.handler = async (event) => {
       { label: "Cours", value: "cours", icon: "📘" },
       { label: "TD", value: "td", icon: "📝" },
       { label: "TP", value: "tp", icon: "🧪" }
-    ]);
+    ], true);
   }
 
   // STEP 4 : cours / td / tp + questions libres
@@ -305,19 +345,19 @@ exports.handler = async (event) => {
           { label: "Cours", value: "cours", icon: "📘" },
           { label: "TD", value: "td", icon: "📝" },
           { label: "TP", value: "tp", icon: "🧪" }
-        ]);
+        ], true);
       }
       return reply("Je n'ai pas trouvé la réponse exacte dans le cours.", [
         { label: "Cours", value: "cours", icon: "📘" },
         { label: "TD", value: "td", icon: "📝" },
         { label: "TP", value: "tp", icon: "🧪" }
-      ]);
+      ], true);
     }
 
     // boutons normaux
     const entry = data[s.field][s.module][msg];
     if (!entry) {
-      return reply("Choisissez cours, td ou tp.");
+      return reply("Choisissez cours, td ou tp.", null, true);
     }
 
     s.step = 4;
@@ -326,9 +366,9 @@ exports.handler = async (event) => {
       { label: "Cours", value: "cours", icon: "📘" },
       { label: "TD", value: "td", icon: "📝" },
       { label: "TP", value: "tp", icon: "🧪" }
-    ]);
+    ], true);
   }
 
   // fallback
-  return reply("Je n'ai pas compris. Réessayez.");
+  return reply("Je n'ai pas compris. Réessayez.", null, true);
 };
