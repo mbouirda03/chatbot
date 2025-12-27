@@ -103,12 +103,18 @@ async function sendMessage(message = null) {
     let data = await res.json();
     console.log("API raw data:", data);
 
-    let payload = { response: null, buttons: [] };
+    let payload = { response: null, buttons: [], enableInput: false };
 
     // Case 1: direct {response, buttons}
     if (typeof data === "object" && (data.response || data.buttons)) {
       payload.response = data.response || null;
       payload.buttons = data.buttons || [];
+      if (typeof data.enableInput === "boolean") {
+        payload.enableInput = data.enableInput;
+      } else {
+        // Fallback if backend doesn't send enableInput
+        payload.enableInput = shouldEnableInput(payload.buttons, payload.response);
+      }
     }
     // Case 2: wrapped { statusCode, body: "json string" }
     else if (data && typeof data === "object" && data.body) {
@@ -116,6 +122,12 @@ async function sendMessage(message = null) {
         const inner = JSON.parse(data.body);
         payload.response = inner.response || null;
         payload.buttons = inner.buttons || [];
+        if (typeof inner.enableInput === "boolean") {
+          payload.enableInput = inner.enableInput;
+        } else {
+          // Fallback if backend doesn't send enableInput
+          payload.enableInput = shouldEnableInput(payload.buttons, payload.response);
+        }
       } catch (e) {
         console.error("Error parsing inner body:", e);
       }
@@ -123,6 +135,9 @@ async function sendMessage(message = null) {
     // Case 3: plain string
     else if (typeof data === "string") {
       payload.response = data;
+      // If plain string, maybe enable input by default or keep it disabled?
+      // Usually errors or simple messages. Let's enable to be safe.
+      payload.enableInput = true;
     }
 
     removeTypingIndicator();
@@ -131,6 +146,18 @@ async function sendMessage(message = null) {
     const buttons = payload.buttons || [];
 
     addMessage(text, false, buttons);
+
+    // Update input state
+    chatInput.disabled = !payload.enableInput;
+    sendButton.disabled = !payload.enableInput;
+    
+    // Update placeholder text based on state
+    if (payload.enableInput) {
+      chatInput.placeholder = "Tapez votre message...";
+      chatInput.focus();
+    } else {
+      chatInput.placeholder = "Sélectionnez un module...";
+    }
   } catch (err) {
     console.error(err);
     removeTypingIndicator();
@@ -144,6 +171,12 @@ function resetSession() {
   sessionId = "user_" + Date.now();
   localStorage.setItem("bts_session_id", sessionId);
   chatMessages.innerHTML = "";
+  
+  // Reset input state and placeholder
+  chatInput.disabled = true;
+  sendButton.disabled = true;
+  chatInput.placeholder = "Sélectionnez un module...";
+  
   addMessage(
     "Session réinitialisée ! 🎓 Je suis votre assistant éducatif. Tapez 'start' pour recommencer."
   );
@@ -162,3 +195,24 @@ chatInput.addEventListener("keypress", (e) => {
   if (e.key === "Enter") sendMessage();
 });
 resetButton.addEventListener("click", resetSession);
+
+// Fallback logic to determine if input should be enabled
+function shouldEnableInput(buttons, text) {
+  // If no buttons, likely a final answer or error -> enable input
+  if (!buttons || buttons.length === 0) return true;
+
+  // Check for known "Step 1" or "Step 2" buttons
+  const disabledValues = ["sri", "cg", "elt", "reseau", "linux", "windows", "comptabilite", "electrotechnique"];
+  
+  // If any button matches a "setup" step value, disable input
+  const hasSetupButton = buttons.some(btn => disabledValues.includes(btn.value));
+  if (hasSetupButton) return false;
+
+  // Check text for "Choisissez" prompts
+  if (text && (text.includes("Choisissez votre filière") || text.includes("Choisissez un module"))) {
+    return false;
+  }
+
+  // Otherwise (e.g. "cours", "td", "tp"), enable input
+  return true;
+}
