@@ -172,6 +172,18 @@ body {
   box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
 }
 
+.chat-input:disabled {
+  background: #f1f5f9;
+  cursor: not-allowed;
+  color: #94a3b8;
+}
+
+.send-button:disabled {
+  background: #cbd5e1;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
 .send-button {
   width: 40px;
   height: 40px;
